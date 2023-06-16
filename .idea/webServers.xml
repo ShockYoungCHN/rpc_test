@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="19963d01-34b0-4493-a597-c23f64963f83" name="hyperv">
+        <fileTransfer rootFolder="/root" accessType="SFTP" host="192.168.1.254" port="22" sshConfigId="b16b3b7e-bb8a-44a2-a468-128ea23c8015" sshConfig="root@192.168.1.254, hyperv">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
