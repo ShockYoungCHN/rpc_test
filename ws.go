@@ -2,16 +2,25 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"github.com/gogf/greuse"
 	"github.com/gorilla/websocket"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 )
+
+var mu sync.Mutex
+var cond = sync.NewCond(&mu)
+var start int64 = 0
+var finish int64 = 0
 
 var ioTimeout = flag.Duration("io_timeout", time.Millisecond*100, "i/o operations timeout")
 
@@ -77,22 +86,59 @@ func epollEcho(conn net.Conn) {
 	safeConn := deadliner{conn, *ioTimeout}
 	_, _ = ws.Upgrade(safeConn)
 	defer conn.Close()
-	time.Sleep(2 * time.Second)
+	time.Sleep(20 * time.Second)
+}
+
+func MaxUpgrade(conn net.Conn) {
+	cond.L.Lock()
+	cond.Wait()
+	cond.L.Unlock()
+
+	safeConn := deadliner{conn, *ioTimeout}
+
+	if start == 0 {
+		start = time.Now().UnixNano()
+	}
+	_, _ = ws.Upgrade(safeConn)
+	if time.Now().UnixNano() > finish {
+		finish = time.Now().UnixNano()
+	}
+
+	defer conn.Close()
+	time.Sleep(10 * time.Second)
 }
 
 func main() {
-	log.Printf("Starting server on port 8080")
-	http.HandleFunc("/echo", echo_gobwas)
-	http.ListenAndServe(":8080", nil)
+	/*	http.HandleFunc("/echo", echo_gobwas)
+		http.ListenAndServe(":8080", nil)*/
 
-	l, _ := net.Listen("tcp", ":8080/echo")
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println("panic err:", err)
+		}
+	}()
+
+	var wg sync.WaitGroup
+
+	n := 1 // default 1 acceptor
+	n, _ = strconv.Atoi(os.Args[1])
+	log.Printf("%d acceptor", n)
 
 	var tempDelay time.Duration
 	// create 4 goroutines to handle the connections
-	for i := 0; i < 4; i++ {
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+
+		port := "8080"
+		l, err := greuse.Listen("tcp", ":"+port)
+		if err != nil {
+			log.Fatalf("Failed to create listener: %v", err)
+		}
+		log.Printf("Starting server on port 8080")
+
 		go func() {
 			for {
-				rw, err := l.Accept()
+				rw, _ := l.Accept()
 				if err != nil {
 					if ne, ok := err.(net.Error); ok && ne.Temporary() {
 						if tempDelay == 0 {
@@ -106,13 +152,19 @@ func main() {
 						time.Sleep(tempDelay)
 						continue
 					}
+					log.Printf("Failed to accept connection: %v", err)
 					break
 				}
 				tempDelay = 0
 				//epoll, _ := CreateEpoll(nil)
-				go epollEcho(rw)
+				go MaxUpgrade(rw)
 			}
 		}()
 	}
+	// wait for all goroutines to be ready for upgrade
+	time.Sleep(3 * time.Second)
+	cond.Broadcast()
 
+	wg.Wait()
+	log.Printf("MaxUpgrade: %d", finish-start)
 }
